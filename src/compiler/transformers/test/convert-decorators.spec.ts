@@ -1,24 +1,11 @@
 import * as ts from 'typescript';
 
 import { filterDecorators } from '../decorators-to-static/convert-decorators';
-import { transpileModule } from './transpile';
-
-/**
- * c for compact, c for class declaration, make of it what you will!
- *
- * a little util to take a multiline template literal and convert it to a
- * single line, with any whitespace substrings converting to single spaces.
- * this can help us compare with the output of `transpileModule`.
- *
- * @param strings an array of strings from a template literal
- * @returns a formatted string!
- */
-function c(strings: TemplateStringsArray) {
-  return strings.join('').replace('\n', ' ').replace(/\s+/g, ' ');
-}
+import { getStaticGetter, transpileModule } from './transpile';
+import { c, formatCode } from './utils';
 
 describe('convert-decorators', () => {
-  it('should convert `@Prop` class fields to properties', () => {
+  it('should convert `@Prop` class fields to properties', async () => {
     const t = transpileModule(`
     @Component({tag: 'cmp-a'})
       export class CmpA {
@@ -29,60 +16,93 @@ describe('convert-decorators', () => {
     // we test the whole output here to ensure that the field has been
     // removed from the class body correctly and replaced with an initializer
     // in the constructor
-    expect(t.outputText).toBe(
-      c`export class CmpA {
+    expect(await formatCode(t.outputText)).toBe(
+      await c`export class CmpA {
         constructor() {
           this.val = "initial value";
         }
-
         static get is() {
           return "cmp-a";
         }
-
         static get properties() {
           return {
             "val": {
               "type": "string",
               "mutable": false,
-              "complexType": {
-                "original": "string",
-                "resolved": "string",
-                "references": {}
-              },
+              "complexType": { "original": "string", "resolved": "string", "references": {} },
               "required": false,
               "optional": false,
-              "docs": {
-                "tags": [],
-                "text": ""
-              },
+              "docs": { "tags": [], "text": "" },
+              "getter": false, 
+              "setter": false,
               "attribute": "val",
               "reflect": false,
               "defaultValue": "\\"initial value\\""
             }
           };
-        }}`
+        }}`,
     );
   });
 
-  it('should initialize decorated class fields to undefined, if nothing provided', () => {
+  it('should get the correct literal for a computed property enum used for a `@Prop`', async () => {
     const t = transpileModule(`
-    @Component({tag: 'cmp-a'})
+      enum MyEnum {
+        MY_PROP = 'myVal'
+      }
+      @Component({tag: 'cmp-a'})
       export class CmpA {
-        @Prop() val?: string;
+        @Prop() [MyEnum.MY_PROP]: string;
       }
     `);
 
-    // we test the whole output here to ensure that the field has been
-    // removed from the class body correctly and replaced with an initializer
-    // in the constructor
-    expect(t.outputText).toContain(
-      c`constructor() {
-          this.val = undefined;
-      }`
-    );
+    expect(t.properties).toEqual([
+      {
+        name: 'myVal',
+        type: 'string',
+        attribute: 'my-val',
+        reflect: false,
+        mutable: false,
+        required: false,
+        optional: false,
+        defaultValue: undefined,
+        complexType: { original: 'string', resolved: 'string', references: {} },
+        docs: { tags: [], text: '' },
+        internal: false,
+        getter: false,
+        setter: false,
+      },
+    ]);
   });
 
-  it('should convert `@State` class fields to properties', () => {
+  it('should get the correct literal for a computed property variable used for a `@Prop`', async () => {
+    const t = transpileModule(`
+      const tmp = 'myVal';
+      @Component({tag: 'cmp-a'})
+      export class CmpA {
+        @Prop() [tmp]: string;
+      }
+    `);
+
+    expect(t.properties).toEqual([
+      {
+        name: 'myVal',
+        type: 'string',
+        attribute: 'my-val',
+        reflect: false,
+        mutable: false,
+        required: false,
+        optional: false,
+        defaultValue: undefined,
+        complexType: { original: 'string', resolved: 'string', references: {} },
+        docs: { tags: [], text: '' },
+        internal: false,
+        getter: false,
+        setter: false,
+      },
+    ]);
+  });
+
+  it('should convert `@State` class fields to properties', async () => {
     const t = transpileModule(`
     @Component({tag: 'cmp-b'})
       export class CmpB {
@@ -93,25 +113,55 @@ describe('convert-decorators', () => {
     // we test the whole output here to ensure that the field has been
     // removed from the class body correctly and replaced with an initializer
     // in the constructor
-    expect(t.outputText).toBe(
-      c`export class CmpB {
+    expect(await formatCode(t.outputText)).toBe(
+      await c`export class CmpB {
         constructor() {
           this.count = 0;
         }
-
         static get is() {
           return "cmp-b";
         }
-
         static get states() {
-          return {
-            "count": {}
-          };
-        }}`
+          return { "count": {}};
+        }}`,
     );
   });
 
-  it('should not add a constructor if no class fields are present', () => {
+  it('should get the correct literal for a computed property enum used for a `@State`', async () => {
+    const t = transpileModule(`
+      enum MyEnum {
+        MY_PROP = 'myVal'
+      }
+      @Component({tag: 'cmp-a'})
+      export class CmpA {
+        @State() [MyEnum.MY_PROP]: string;
+      }
+    `);
+
+    expect(t.states).toEqual([
+      {
+        name: 'myVal',
+      },
+    ]);
+  });
+
+  it('should get the correct literal for a computed property variable used for a `@State`', async () => {
+    const t = transpileModule(`
+      const tmp = 'myVal';
+      @Component({tag: 'cmp-a'})
+      export class CmpA {
+        @State() [tmp]: string;
+      }
+    `);
+
+    expect(t.states).toEqual([
+      {
+        name: 'myVal',
+      },
+    ]);
+  });
+
+  it('should not add a constructor if no class fields are present', async () => {
     const t = transpileModule(`
     @Component({tag: 'cmp-a'})
       export class CmpA {
@@ -121,38 +171,36 @@ describe('convert-decorators', () => {
     // we test the whole output here to ensure that the field has been
     // removed from the class body correctly and replaced with an initializer
     // in the constructor
-    expect(t.outputText).toBe(
-      c`export class CmpA {
+    expect(await formatCode(t.outputText)).toBe(
+      await c`export class CmpA {
         static get is() {
           return "cmp-a";
-        }}`
+        }}`,
     );
   });
 
-  it('should add a super call to the constructor if necessary', () => {
-    const t = transpileModule(`
-    @Component({tag: 'cmp-a'})
+  it('should add a super call to the constructor if necessary', async () => {
+    const t = transpileModule(
+      `@Component({tag: 'cmp-a'})
       export class CmpA extends Foobar {
         @State() count: number = 0;
       }
-    `);
+    `,
+    );
 
-    expect(t.outputText).toBe(
-      c`export class CmpA extends Foobar {
+    expect(await formatCode(t.outputText)).toBe(
+      await c`export class CmpA extends Foobar {
         constructor() {
-          super();
           this.count = 0;
+          super();
         }
-
         static get states() {
-          return {
-            "count": {}
-          };
-        }}`
+          return { "count": {} };
+        }}`,
     );
   });
 
-  it('should preserve statements in an existing constructor', () => {
+  it('should preserve statements in an existing constructor', async () => {
     const t = transpileModule(`
     @Component({
       tag: 'my-component',
@@ -163,19 +211,18 @@ describe('convert-decorators', () => {
       }
     }`);
 
-    expect(t.outputText).toBe(
-      c`export class MyComponent {
+    expect(await formatCode(t.outputText)).toBe(
+      await c`export class MyComponent {
         constructor() {
           console.log('boop');
         }
-
         static get is() {
           return "my-component";
-      }}`
+      }}`,
     );
   });
 
-  it('should preserve statements in an existing constructor w/ @Prop', () => {
+  it('should preserve statements in an existing constructor w/ @Prop', async () => {
     const t = transpileModule(`
     @Component({
       tag: 'my-component',
@@ -188,17 +235,16 @@ describe('convert-decorators', () => {
       }
     }`);
 
-    expect(t.outputText).toContain(
-      c`constructor() {
-          this.count = undefined;
-          console.log('boop');
-        }`
+    expect(await formatCode(t.outputText)).toContain(
+      `  constructor() {
+    console.log('boop');
+  }`,
     );
   });
 
-  it('should allow user to initialize field in an existing constructor w/ @Prop', () => {
-    const t = transpileModule(`
-    @Component({
+  it('should allow user to initialize field in an existing constructor w/ @Prop', async () => {
+    const t = transpileModule(
+      `@Component({
       tag: 'my-component',
     })
     export class MyComponent {
@@ -207,20 +253,20 @@ describe('convert-decorators', () => {
       constructor() {
         this.count = 3;
       }
-    }`);
+    }`,
+    );
 
     // the initialization we do to `undefined` (since no value is present)
     // should be before the user's `this.count = 3` to ensure that their code
     // wins.
-    expect(t.outputText).toContain(
-      c`constructor() {
-          this.count = undefined;
-          this.count = 3;
-        }`
+    expect(await formatCode(t.outputText)).toContain(
+      `  constructor() {
+    this.count = 3;
+  }`,
     );
   });
 
-  it('should preserve statements in an existing constructor w/ non-decorated field', () => {
+  it('should preserve statements in an existing constructor w/ non-decorated field', async () => {
     const t = transpileModule(`
     @Component({
       tag: 'example',
@@ -233,15 +279,15 @@ describe('convert-decorators', () => {
       }
     }`);
 
-    expect(t.outputText).toBe(
-      c`export class Example {
+    expect(await formatCode(t.outputText)).toBe(
+      await c`export class Example {
         constructor() {
           this.classProps = ["variant", "theme"];
-        }}`
+        }}`,
     );
   });
 
-  it('should preserve statements in an existing constructor super, decorated field', () => {
+  it('should preserve statements in an existing constructor super, decorated field', async () => {
     const t = transpileModule(`
     @Component({
       tag: 'example',
@@ -254,16 +300,16 @@ describe('convert-decorators', () => {
       }
     }`);
 
-    expect(t.outputText).toContain(
-      c`constructor() {
-        super();
-        this.foo = "bar";
-        console.log("hello!");
-      }`
+    expect(await formatCode(t.outputText)).toContain(
+      `  constructor() {
+    this.foo = 'bar';
+    super();
+    console.log('hello!');
+  }`,
     );
   });
 
-  it('should not add a super call to the constructor if not necessary', () => {
+  it('should not add a super call to the constructor if not necessary', async () => {
     const t = transpileModule(`
     @Component({tag: 'cmp-a'})
       export class CmpA implements Foobar {
@@ -271,25 +317,21 @@ describe('convert-decorators', () => {
       }
     `);
 
-    expect(t.outputText).toBe(
-      c`export class CmpA {
+    expect(await formatCode(await formatCode(t.outputText))).toBe(
+      await c`export class CmpA {
         constructor() {
           this.count = 0;
         }
-
         static get is() {
           return "cmp-a";
         }
-
         static get states() {
-          return {
-            "count": {}
-          };
-        }}`
+          return { "count": {} };
+        }}`,
     );
   });
 
-  it('should not convert `@Event` fields to constructor-initialization', () => {
+  it('should not convert `@Event` fields to constructor-initialization', async () => {
     const t = transpileModule(`
     @Component({tag: 'cmp-a'})
       export class CmpA {
@@ -306,12 +348,11 @@ describe('convert-decorators', () => {
     // we test the whole output here to ensure that the field has been
     // removed from the class body correctly and replaced with an initializer
     // in the constructor
-    expect(t.outputText).toBe(
-      c`export class CmpA {
+    expect(await formatCode(t.outputText)).toBe(
+      await c`export class CmpA {
         static get is() {
           return "cmp-a";
         }
-
         static get events() {
           return [{
             "method": "myEventWithOptions",
@@ -319,113 +360,128 @@ describe('convert-decorators', () => {
             "bubbles": false,
             "cancelable": false,
             "composed": true,
-            "docs": {
-              "tags": [],
-              "text": ""
-            },
-            "complexType": {
-              "original": "{ mph: number }",
-              "resolved": "{ mph: number; }",
-              "references": {}
-            }
+            "docs": { "tags": [], "text": "" },
+            "complexType": { "original": "{ mph: number }", "resolved": "{ mph: number; }", "references": {} }
           }];
-      }}`
+      }}`,
     );
   });
 
+  it('should create formAssociated static getter', async () => {
+    const t = transpileModule(`
+     @Component({
+       tag: 'cmp-a',
+       formAssociated: true
+     })
+      export class CmpA {
+    }
+    `);
+
+    expect(getStaticGetter(t.outputText, 'formAssociated')).toBe(true);
+  });
+
+  it('should support formAssociated with shadow', async () => {
+    const t = transpileModule(`
+     @Component({
+       tag: 'cmp-a',
+       formAssociated: true,
+       shadow: true
+     })
+      export class CmpA {
+    }
+    `);
+
+    expect(getStaticGetter(t.outputText, 'encapsulation')).toBe('shadow');
+    expect(getStaticGetter(t.outputText, 'formAssociated')).toBe(true);
+  });
+
+  it('should support formAssociated with scoped', async () => {
+    const t = transpileModule(`
+     @Component({
+       tag: 'cmp-a',
+       formAssociated: true,
+       scoped: true
+     })
+      export class CmpA {
+    }
+    `);
+
+    expect(getStaticGetter(t.outputText, 'encapsulation')).toBe('scoped');
+    expect(getStaticGetter(t.outputText, 'formAssociated')).toBe(true);
+  });
+
+  it('should create attachInternalsMemberName static getter', async () => {
+    const t = transpileModule(`
+     @Component({
+       tag: 'cmp-a',
+     })
+      export class CmpA {
+      @AttachInternals()
+      elementInternals;
+    }
+    `);
+    expect(getStaticGetter(t.outputText, 'attachInternalsMemberName')).toBe('elementInternals');
+  });
+
   describe('filterDecorators', () => {
-    /**
-     * Create a decorated class member, 'classMemberVariable: string;', as it would exist in a class. No class
-     * declaration is created.
-     *
-     * The property declaration will have any decorators provided applied to it.
-     *
-     * @example
-     * // By default, no decorators will be applied, and the following will be returned:
-     * createClassMemberWithDecorators(); // Node representing 'classMemberVariable: string;'
-     *
-     * // Otherwise, the provided modifier will be applied to the method:
-     * const propDecorator = ts.factory.createDecorator(
-     *   ts.factory.createCallExpression(ts.factory.createIdentifier('Prop'), undefined, [])
-     * );
-     * createClassMemberWithDecorators([propDecorator]); // '@Prop() classMemberVariable: string;'
-     *
-     * @param decorators the decorators to apply to the property declaration
-     * @returns the created property declaration
-     */
-    const createClassMemberWithDecorators = (decorators?: ReadonlyArray<ts.Decorator>): ts.PropertyDeclaration => {
-      const decoratorsToUse = decorators ? [...decorators] : undefined;
-      return ts.factory.createPropertyDeclaration(
-        decoratorsToUse,
-        undefined,
-        ts.factory.createIdentifier('classMemberVariable'),
-        undefined,
-        ts.factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword),
-        undefined
-      );
-    };
+    it.each<ReadonlyArray<ReadonlyArray<string>>>([[[]], [['ExcludedDecorator']]])(
+      'returns undefined when no decorators are provided',
+      (excludeList: ReadonlyArray<string>) => {
+        const filteredDecorators = filterDecorators(undefined, excludeList);
 
-    it("returns undefined if a node doesn't have any decorators", () => {
-      // create a class member, 'classMemberVariable: string;', as it would exist in a class
-      const member = createClassMemberWithDecorators(undefined);
+        expect(filteredDecorators).toBeUndefined();
+      },
+    );
 
-      const filteredDecorators = filterDecorators(member.decorators, []);
+    it.each<ReadonlyArray<ReadonlyArray<string>>>([[[]], [['ExcludedDecorator']]])(
+      'returns undefined for an empty list of decorators',
+      (excludeList: ReadonlyArray<string>) => {
+        const filteredDecorators = filterDecorators([], excludeList);
 
-      expect(filteredDecorators).toBeUndefined();
-    });
+        expect(filteredDecorators).toBeUndefined();
+      },
+    );
 
-    it('returns undefined if a node has an empty list of decorators', () => {
-      // create a class member, 'classMemberVariable: string;', as it would exist in a class
-      const member = createClassMemberWithDecorators([]);
-
-      const filteredDecorators = filterDecorators(member.decorators, []);
-
-      expect(filteredDecorators).toBeUndefined();
-    });
-
-    it("returns a node's decorator if it is not a call expression", () => {
-      // create a decorated class member, '@Decorator classMemberVariable: string;', as it would exist in a class
-      // note the lack of '()' after the decorator, making it an identifier expression, rather than a class expression
+    it('returns a decorator if it is not a call expression', () => {
+      // create a decorator, '@Decorator'. note the lack of '()' after the decorator, making it an identifier
+      // expression, rather than a call expression
       const decorator = ts.factory.createDecorator(ts.factory.createIdentifier('Decorator'));
-      const member = createClassMemberWithDecorators([decorator]);
 
-      const filteredDecorators = filterDecorators(member.decorators, []);
+      const filteredDecorators = filterDecorators([decorator], []);
 
       expect(filteredDecorators).toHaveLength(1);
-      expect(filteredDecorators[0]).toBe(decorator);
+      expect(filteredDecorators![0]).toBe(decorator);
     });
 
-    it("doesn't return any decorators when all decorators on a node exist in the exclude list", () => {
+    it("doesn't return any decorators when all decorators in the exclude list", () => {
       // create a '@CustomProp()' decorator
       const customDecorator = ts.factory.createDecorator(
-        ts.factory.createCallExpression(ts.factory.createIdentifier('CustomProp'), undefined, [])
+        ts.factory.createCallExpression(ts.factory.createIdentifier('CustomProp'), undefined, []),
       );
       // create '@Prop()' decorator
       const decorator = ts.factory.createDecorator(
-        ts.factory.createCallExpression(ts.factory.createIdentifier('Prop'), undefined, [])
+        ts.factory.createCallExpression(ts.factory.createIdentifier('Prop'), undefined, []),
       );
-      const member = createClassMemberWithDecorators([customDecorator, decorator]);
 
-      const filteredDecorators = filterDecorators(member.decorators, ['Prop', 'CustomProp']);
+      const filteredDecorators = filterDecorators([customDecorator, decorator], ['Prop', 'CustomProp']);
 
       expect(filteredDecorators).toBeUndefined();
     });
 
-    it('returns any decorators on a node, not in the exclude list', () => {
+    it('returns any decorators not in the exclude list', () => {
       // create a '@CustomProp()' decorator
       const customDecorator = ts.factory.createDecorator(
-        ts.factory.createCallExpression(ts.factory.createIdentifier('CustomProp'), undefined, [])
+        ts.factory.createCallExpression(ts.factory.createIdentifier('CustomProp'), undefined, []),
       );
       // create '@Prop()' decorator
       const decorator = ts.factory.createDecorator(
-        ts.factory.createCallExpression(ts.factory.createIdentifier('Prop'), undefined, [])
+        ts.factory.createCallExpression(ts.factory.createIdentifier('Prop'), undefined, []),
       );
-      const member = createClassMemberWithDecorators([customDecorator, decorator]);
 
-      const filteredDecorators = filterDecorators(member.decorators, ['Prop']);
+      const filteredDecorators = filterDecorators([customDecorator, decorator], ['Prop']);
 
       expect(filteredDecorators).toHaveLength(1);
-      expect(filteredDecorators[0]).toBe(customDecorator);
+      expect(filteredDecorators![0]).toBe(customDecorator);
     });
   });
 });

@@ -84,16 +84,16 @@ describe('shadow', () => {
     });
 
     const expected = `
-    <cmp-a class="hydrated sc-cmp-a-h">
+    <cmp-a class="hydrated">
       <!---->
-      <div class="sc-cmp-a sc-cmp-a-s">
+      <div>
         <span slot=\"start\">
           Start
         </span>
-        <span class='sc-cmp-a sc-cmp-a-s'>
+        <span>
           Text
         </span>
-        <div class='end sc-cmp-a sc-cmp-a-s'>
+        <div class="end">
           <span slot=\"end\">
             End
           </span>
@@ -134,5 +134,37 @@ describe('shadow', () => {
     </cmp-a>`;
     expect(page.root).toEqualHtml(expected);
     expect(page.root).toEqualLightHtml(expected);
+  });
+
+  it('test shadow root innerHTML', async () => {
+    @Component({
+      tag: 'cmp-a',
+      shadow: true,
+    })
+    class CmpA {
+      render() {
+        return <div>Shadow Content</div>;
+      }
+    }
+
+    const page = await newSpecPage({
+      components: [CmpA],
+      html: `
+        <cmp-a>
+          Light Content
+        </cmp-a>
+      `,
+    });
+
+    expect(page.root).toEqualHtml(`
+      <cmp-a>
+        <mock:shadow-root>
+          <div>
+            Shadow Content
+          </div>
+        </mock:shadow-root>
+        Light Content
+      </cmp-a>
+    `);
   });
 });

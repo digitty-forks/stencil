@@ -1,4 +1,6 @@
-import { setAccessor } from '../set-accessor';
+import { BUILD } from '@app-data';
+
+import { parseClassList, setAccessor } from '../set-accessor';
 
 describe('setAccessor for custom elements', () => {
   let elm: any;
@@ -112,6 +114,36 @@ describe('setAccessor for custom elements', () => {
 
       expect(addEventSpy).toHaveBeenCalledWith('click', newValue, false);
       expect(removeEventSpy).not.toHaveBeenCalled();
+    });
+
+    it('should add a capture style event listener', () => {
+      const addEventSpy = jest.spyOn(elm, 'addEventListener');
+      const removeEventSpy = jest.spyOn(elm, 'removeEventListener');
+
+      const newValue = () => {
+        /**/
+      };
+
+      setAccessor(elm, 'onClickCapture', undefined, newValue, false, 0);
+
+      expect(addEventSpy).toHaveBeenCalledWith('click', newValue, true);
+      expect(removeEventSpy).not.toHaveBeenCalled();
+    });
+
+    it('should remove a capture style event listener', () => {
+      const addEventSpy = jest.spyOn(elm, 'addEventListener');
+      const removeEventSpy = jest.spyOn(elm, 'removeEventListener');
+
+      const orgValue = () => {
+        /**/
+      };
+
+      setAccessor(elm, 'onClickCapture', undefined, orgValue, false, 0);
+      setAccessor(elm, 'onClickCapture', orgValue, undefined, false, 0);
+
+      expect(addEventSpy).toHaveBeenCalledTimes(1);
+      expect(addEventSpy).toHaveBeenCalledWith('click', orgValue, true);
+      expect(removeEventSpy).toHaveBeenCalledWith('click', orgValue, true);
     });
   });
 
@@ -291,6 +323,13 @@ describe('setAccessor for custom elements', () => {
     setAccessor(elm, 'myprop', oldValue, newValue, false, 0);
     expect(elm.myprop).toBeUndefined();
     expect(elm).toEqualAttributes({ myprop: 'stringval' });
+  });
+
+  it('ignore when updating readonly properties', () => {
+    const readOnlyProp = 'namespaceURI';
+    const oldReadOnlyVal = 'http://www.w3.org/1999/xhtml';
+    setAccessor(elm, readOnlyProp, oldReadOnlyVal, 'foobar', false, 0);
+    expect(elm[readOnlyProp]).toBe(oldReadOnlyVal);
   });
 });
 
@@ -561,6 +600,10 @@ describe('setAccessor for inputs', () => {
 });
 
 describe('setAccessor for standard html elements', () => {
+  beforeEach(() => {
+    BUILD.hydrateClientSide = true;
+  });
+
   describe('simple global attributes', () => {
     it('should not add attribute when prop is undefined or null', () => {
       const inputElm = document.createElement('section');
@@ -687,7 +730,7 @@ describe('setAccessor for standard html elements', () => {
               class2
        class3  `,
         false,
-        0
+        0,
       );
       expect(elm).toHaveClasses(['class1', 'class2', 'class3']);
     });
@@ -724,7 +767,7 @@ describe('setAccessor for standard html elements', () => {
            ion-color`,
         'icon2',
         false,
-        0
+        0,
       );
       expect(elm).toHaveClasses(['icon2']);
     });
@@ -752,6 +795,43 @@ describe('setAccessor for standard html elements', () => {
       setAccessor(elm, 'class', 'md', '', false, 0);
       expect(elm.className).toEqual('');
     });
+
+    it('should add scope classes on initial render if `s-si` set', () => {
+      const elm = document.createElement('section');
+
+      // not s-si set
+      setAccessor(elm, 'class', 'a-scope-id', undefined, false, 0, true);
+      expect(elm.className).toEqual('');
+
+      (elm as any)['s-si'] = 'a-scope-id';
+
+      setAccessor(elm, 'class', '', undefined, false, 0, true);
+      expect(elm.className).toEqual('a-scope-id');
+
+      setAccessor(
+        elm,
+        'class',
+        'a-scope-id-something a-scope-id-something-else unrelated-old-thing',
+        undefined,
+        false,
+        0,
+        true,
+      );
+      expect(elm.className).toEqual('a-scope-id a-scope-id-something a-scope-id-something-else');
+
+      elm.className = '';
+      setAccessor(elm, 'class', 'something-old', 'something-new', false, 0, true);
+      expect(elm.className).toEqual('something-new a-scope-id');
+
+      elm.className = '';
+      setAccessor(elm, 'class', 'something-old a-scope-id-something', 'something-new', false, 0, true);
+      expect(elm.className).toEqual('something-new a-scope-id a-scope-id-something');
+
+      // just check it reverts to normal behavior after initial render
+      elm.className = '';
+      setAccessor(elm, 'class', 'something-old a-scope-id-something', 'something-new', false, 0);
+      expect(elm.className).toEqual('something-new');
+    });
   });
 
   describe('style attribute', () => {
@@ -775,7 +855,7 @@ describe('setAccessor for standard html elements', () => {
           marginRight: '55px',
         },
         false,
-        0
+        0,
       );
       expect(elm.style.cssText).toEqual('font-size: 12px; margin-right: 55px;');
 
@@ -791,7 +871,7 @@ describe('setAccessor for standard html elements', () => {
           'font-size': '20px',
         },
         false,
-        0
+        0,
       );
 
       expect(elm.style.cssText).toEqual('font-size: 20px;');
@@ -808,7 +888,7 @@ describe('setAccessor for standard html elements', () => {
         { color: 'blue', 'font-size': '12px', paddingLeft: '88px' },
         { color: 'blue', 'font-size': '12px', paddingLeft: '88px' },
         false,
-        0
+        0,
       );
       expect(elm.style.cssText).toEqual('');
 
@@ -827,7 +907,7 @@ describe('setAccessor for standard html elements', () => {
         { color: 'blue', padding: '20px', marginRight: '88px' },
         { color: 'blue', padding: '30px', marginRight: '55px' },
         false,
-        0
+        0,
       );
 
       expect(elm.style.cssText).toEqual('color: black; padding: 30px; margin-right: 55px;');
@@ -847,6 +927,37 @@ describe('setAccessor for standard html elements', () => {
 
       setAccessor(elm, 'style', { margin: '20px' }, { margin: '30px', color: 'orange' }, false, 0);
       expect(elm.style.cssText).toEqual('margin: 30px; color: orange;');
+    });
+  });
+
+  it('uses setAttribute if element has not setter', () => {
+    const elm = document.createElement('button');
+    const spy = jest.spyOn(elm, 'setAttribute');
+    setAccessor(elm, 'form', undefined, 'some-form', false, 0);
+    expect(spy.mock.calls).toEqual([['form', 'some-form']]);
+
+    const elm2 = document.createElement('button');
+    const spy2 = jest.spyOn(elm2, 'setAttribute');
+    setAccessor(elm2, 'textContent', undefined, 'some-content', false, 0);
+    expect(spy2.mock.calls).toEqual([]);
+  });
+
+  describe('parseClassList', () => {
+    it('should parse class list', () => {
+      const classList = parseClassList('class1 class2 class3');
+      expect(classList).toEqual(['class1', 'class2', 'class3']);
+    });
+
+    it('should not parse class list', () => {
+      expect(parseClassList('')).toEqual([]);
+      // @ts-expect-error
+      expect(parseClassList()).toEqual([]);
+      expect(parseClassList(null)).toEqual([]);
+    });
+
+    it('should parse SVGAnimatedString', () => {
+      const classList = parseClassList({ baseVal: 'class1 class2 class3' } as SVGAnimatedString);
+      expect(classList).toEqual(['class1', 'class2', 'class3']);
     });
   });
 });
